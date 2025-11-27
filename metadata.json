@@ -1,0 +1,5 @@
+{
+  "name": "Capsule Configurator 3D",
+  "description": "A real-time 3D modular house configurator using React Three Fiber. Features step-by-step customization, dynamic pricing, and automated camera transitions.",
+  "requestFramePermissions": []
+}
