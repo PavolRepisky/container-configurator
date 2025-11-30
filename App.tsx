@@ -1,59 +1,24 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React from 'react';
 import Experience from './components/Experience';
 import ConfigPanel from './components/ConfigPanel';
-import { ConfigState, STEPS, Language } from './types';
-import { INITIAL_CONFIG, PRICING, COLORS } from './constants';
+import { STEPS, Language } from './types';
+import { PRICING, COLORS } from './constants';
 import { Boxes, Download, CheckCircle, Globe } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { TRANSLATIONS } from './translations';
+import { useConfigStore } from './store';
 
 const App: React.FC = () => {
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [config, setConfig] = useState<ConfigState>(INITIAL_CONFIG);
-  const [isFinished, setIsFinished] = useState(false);
-  const [language, setLanguage] = useState<Language>('en');
-
+  const currentStepIndex = useConfigStore((state) => state.currentStepIndex);
+  const isFinished = useConfigStore((state) => state.isFinished);
+  const language = useConfigStore((state) => state.language);
+  const setLanguage = useConfigStore((state) => state.setLanguage);
+  const prevStep = useConfigStore((state) => state.prevStep);
+  const getTotalPrice = useConfigStore((state) => state.getTotalPrice);
+  const config = useConfigStore((state) => state.config);
+  
   const t = TRANSLATIONS[language];
-  const currentStep = STEPS[currentStepIndex];
-
-  const updateConfig = useCallback((key: keyof ConfigState, value: any) => {
-    setConfig((prev) => ({ ...prev, [key]: value }));
-  }, []);
-
-  const calculateTotal = useMemo(() => {
-    let total = PRICING.basePrice;
-    
-    // Calculate enum/string based costs
-    const colorCost = (PRICING.options.wallColor as Record<string, number>)?.[config.wallColor] || 0;
-    const windowCost = (PRICING.options.windowType as Record<string, number>)?.[config.windowType] || 0;
-    const tableCost = (PRICING.options.tableType as Record<string, number>)?.[config.tableType] || 0;
-    const floorCost = (PRICING.options.floorMaterial as Record<string, number>)?.[config.floorMaterial] || 0;
-
-    // Calculate boolean costs
-    const kitchenCost = config.hasKitchen ? (PRICING.options.hasKitchen as number) : 0;
-    const solarCost = config.solarPanels ? (PRICING.options.solarPanels as number) : 0;
-    const acCost = config.acUnit ? (PRICING.options.acUnit as number) : 0;
-
-    return total + colorCost + windowCost + tableCost + floorCost + kitchenCost + solarCost + acCost;
-  }, [config]);
-
-  const handleNext = () => {
-    if (currentStepIndex < STEPS.length - 1) {
-      setCurrentStepIndex((prev) => prev + 1);
-    } else {
-      setIsFinished(true);
-    }
-  };
-
-  const handlePrev = () => {
-    if (isFinished) {
-        setIsFinished(false);
-        return;
-    }
-    if (currentStepIndex > 0) {
-      setCurrentStepIndex((prev) => prev - 1);
-    }
-  };
+  const totalPrice = getTotalPrice();
 
   const handleExport = () => {
     const doc = new jsPDF();
@@ -97,8 +62,9 @@ const App: React.FC = () => {
     doc.setDrawColor(229, 231, 235); // Gray-200
     doc.line(20, yPos - 5, pageWidth - 20, yPos - 5);
 
-    // Base Price
-    addLineItem(t.ui.baseModel, t.ui.standardShell, PRICING.basePrice);
+    // Base Model (Variant)
+    const variantCost = (PRICING.options.capsuleVariant as Record<string, number>)?.[config.capsuleVariant] || 0;
+    addLineItem(t.options.modelVariant, t.options[config.capsuleVariant], variantCost);
 
     // Exterior
     const colorCost = (PRICING.options.wallColor as Record<string, number>)?.[config.wallColor] || 0;
@@ -136,7 +102,7 @@ const App: React.FC = () => {
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text(t.ui.total.toUpperCase(), 20, yPos);
-    doc.text(fmt(calculateTotal), pageWidth - 20, yPos, { align: 'right' });
+    doc.text(fmt(totalPrice), pageWidth - 20, yPos, { align: 'right' });
 
     // Save
     doc.save('capsule-mod-quote.pdf');
@@ -147,7 +113,7 @@ const App: React.FC = () => {
       
       {/* 3D Canvas Area */}
       <div className="flex-1 relative h-[50vh] md:h-full order-1 md:order-1">
-        <Experience config={config} currentStepIndex={isFinished ? 0 : currentStepIndex} />
+        <Experience />
         
         {/* Top Overlay Branding */}
         <div className="absolute top-6 left-6 z-10 bg-white/90 backdrop-blur px-4 py-2 rounded-full shadow-sm flex items-center gap-2 pointer-events-none">
@@ -205,7 +171,7 @@ const App: React.FC = () => {
                 <p className="text-gray-500 mb-8">{t.ui.readyText}</p>
                 
                 <div className="text-4xl font-bold text-gray-900 mb-8">
-                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(calculateTotal)}
+                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalPrice)}
                 </div>
 
                 <div className="w-full space-y-3">
@@ -217,7 +183,7 @@ const App: React.FC = () => {
                         {t.ui.download}
                     </button>
                     <button 
-                        onClick={handlePrev}
+                        onClick={prevStep}
                         className="w-full py-3 px-4 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
                     >
                         {t.ui.edit}
@@ -225,17 +191,7 @@ const App: React.FC = () => {
                 </div>
             </div>
         ) : (
-            <ConfigPanel 
-                step={currentStep.name}
-                config={config}
-                updateConfig={updateConfig}
-                nextStep={handleNext}
-                prevStep={handlePrev}
-                isFirstStep={currentStepIndex === 0}
-                isLastStep={currentStepIndex === STEPS.length - 1}
-                totalPrice={calculateTotal}
-                t={t}
-            />
+            <ConfigPanel />
         )}
       </div>
     </div>

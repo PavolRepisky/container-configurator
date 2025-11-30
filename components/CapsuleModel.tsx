@@ -1,16 +1,14 @@
 import React from 'react';
-import { ConfigState } from '../types';
+import { useConfigStore } from '../store';
+import { VARIANT_DIMENSIONS } from '../constants';
 import { DoubleSide } from 'three';
 
-interface CapsuleModelProps {
-  config: ConfigState;
-  currentStepIndex: number;
-}
+const CapsuleModel: React.FC = () => {
+  const config = useConfigStore((state) => state.config);
+  const currentStepIndex = useConfigStore((state) => state.currentStepIndex);
 
-const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex }) => {
-  // Dimensions
-  const width = 11.5;
-  const height = 3.3;
+  // Dimensions determined by variant
+  const { width, height } = VARIANT_DIMENSIONS[config.capsuleVariant];
   const depth = 3.3;
   
   // Visibility Logic
@@ -31,39 +29,108 @@ const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex })
 
   const glassMaterialProps = {
     transparent: true,
-    opacity: 0.2,
-    roughness: 0,
+    opacity: 0.3,
+    roughness: 0.1,
     metalness: 0.9,
     clearcoat: 1,
     transmission: 0.95,
-    thickness: 0.1,
-    side: DoubleSide
+    thickness: 0.05, // Physical thickness for refraction
+    ior: 1.5,
+  };
+
+  const blackMetalProps = {
+    color: "#1a1a1a",
+    roughness: 0.2,
+    metalness: 0.8
   };
 
   // --- REUSABLE COMPONENTS ---
 
   const CorrugatedPanel: React.FC<{ width: number, height: number, depth: number, horizontal?: boolean }> = ({ width, height, depth, horizontal = false }) => {
-    const ribCount = Math.floor((horizontal ? height : width) / 0.3);
+    // Prevent negative dimensions
+    const w = Math.max(0.01, width);
+    const h = Math.max(0.01, height);
+    
+    const ribCount = Math.floor((horizontal ? h : w) / 0.3);
     const ribWidth = 0.15;
     const ribDepth = 0.08;
     
     return (
       <group>
         <mesh castShadow receiveShadow>
-            <boxGeometry args={[width, height, depth]} />
+            <boxGeometry args={[w, h, depth]} />
             <meshStandardMaterial {...wallMaterialProps} />
         </mesh>
-        {Array.from({ length: ribCount }).map((_, i) => {
+        {w > 0.3 && Array.from({ length: ribCount }).map((_, i) => {
             const offset = (i - ribCount / 2) * 0.3 + 0.15;
             const x = horizontal ? 0 : offset;
             const y = horizontal ? offset : 0;
             return (
                 <mesh key={i} position={[x, y, horizontal ? depth/2 + ribDepth/2 : depth/2 + ribDepth/2]} castShadow receiveShadow>
-                     <boxGeometry args={[horizontal ? width : ribWidth, horizontal ? ribWidth : height, ribDepth]} />
+                     <boxGeometry args={[horizontal ? w : ribWidth, horizontal ? ribWidth : h, ribDepth]} />
                      <meshStandardMaterial {...wallMaterialProps} color={config.wallColor} />
                 </mesh>
             )
         })}
+      </group>
+    );
+  };
+
+  const WindowFrame: React.FC<{ width: number; height: number; type?: 'fixed' | 'sliding' | 'panoramic' }> = ({ width, height, type = 'fixed' }) => {
+    const frameThickness = 0.1;
+    const frameDepth = 0.2;
+    const glassThickness = 0.02;
+
+    return (
+      <group>
+        {/* Outer Frame */}
+        {/* Top */}
+        <mesh position={[0, height/2 - frameThickness/2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[width, frameThickness, frameDepth]} />
+            <meshStandardMaterial {...blackMetalProps} />
+        </mesh>
+        {/* Bottom */}
+        <mesh position={[0, -height/2 + frameThickness/2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[width, frameThickness, frameDepth]} />
+            <meshStandardMaterial {...blackMetalProps} />
+        </mesh>
+        {/* Left */}
+        <mesh position={[-width/2 + frameThickness/2, 0, 0]} castShadow receiveShadow>
+            <boxGeometry args={[frameThickness, height - frameThickness*2, frameDepth]} />
+            <meshStandardMaterial {...blackMetalProps} />
+        </mesh>
+        {/* Right */}
+        <mesh position={[width/2 - frameThickness/2, 0, 0]} castShadow receiveShadow>
+            <boxGeometry args={[frameThickness, height - frameThickness*2, frameDepth]} />
+            <meshStandardMaterial {...blackMetalProps} />
+        </mesh>
+
+        {/* Vertical Dividers / Mullions */}
+        {type === 'sliding' && (
+             <mesh position={[0, 0, 0]} castShadow receiveShadow>
+                <boxGeometry args={[0.08, height - frameThickness*2, frameDepth * 0.9]} />
+                <meshStandardMaterial {...blackMetalProps} />
+            </mesh>
+        )}
+        
+        {type === 'panoramic' && (
+            // Add mullions every 2 meters
+            Array.from({ length: Math.floor(width / 2) }).map((_, i, arr) => {
+                const offset = (i + 1) * (width / (arr.length + 1)) - width/2;
+                return (
+                    <mesh key={i} position={[offset, 0, 0]} castShadow receiveShadow>
+                        <boxGeometry args={[0.08, height - frameThickness*2, frameDepth * 0.9]} />
+                        <meshStandardMaterial {...blackMetalProps} />
+                    </mesh>
+                )
+            })
+        )}
+
+        {/* Glass Volume */}
+        <mesh position={[0, 0, 0]} castShadow={false} receiveShadow>
+            <boxGeometry args={[width - frameThickness*2, height - frameThickness*2, glassThickness]} />
+            <meshPhysicalMaterial {...glassMaterialProps} />
+        </mesh>
       </group>
     );
   };
@@ -98,6 +165,113 @@ const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex })
           </mesh>
       </group>
   );
+
+  // --- FACADE RENDERER HELPER ---
+  const renderFacade = () => {
+    // Structural constraints
+    const innerWidth = width - 0.3; // Total width between corner posts
+    const wallHeight = height - 0.6; // Vertical space between rails
+    const postOffset = 0.15; // Width of one post/2
+    
+    // Bounds
+    const leftBound = -width / 2 + postOffset;
+    const rightBound = width / 2 - postOffset;
+
+    if (config.windowType === 'panoramic') {
+        return <WindowFrame width={innerWidth} height={height - 0.4} type="panoramic" />;
+    }
+
+    if (config.capsuleVariant === 'nano') {
+        // NANO LAYOUT: 1 Door (width 2.5) centered around x=1.0 to leave room for kitchen
+        const doorWidth = 2.5;
+        const doorCenter = 1.0;
+        const doorLeft = doorCenter - doorWidth / 2;
+        const doorRight = doorCenter + doorWidth / 2;
+
+        // Calculate Wall Segments
+        const leftWallWidth = doorLeft - leftBound;
+        const leftWallCenter = leftBound + leftWallWidth / 2;
+
+        const rightWallWidth = rightBound - doorRight;
+        const rightWallCenter = doorRight + rightWallWidth / 2;
+
+        return (
+            <group>
+                {/* Left Wall */}
+                {leftWallWidth > 0 && (
+                    <group position={[leftWallCenter, 0, 0]}>
+                        <CorrugatedPanel width={leftWallWidth} height={wallHeight} depth={0.05} />
+                    </group>
+                )}
+                {/* Door */}
+                <group position={[doorCenter, 0, 0]}>
+                    <WindowFrame width={doorWidth} height={height - 0.4} type="sliding" />
+                </group>
+                {/* Right Wall */}
+                {rightWallWidth > 0 && (
+                    <group position={[rightWallCenter, 0, 0]}>
+                        <CorrugatedPanel width={rightWallWidth} height={wallHeight} depth={0.05} />
+                    </group>
+                )}
+            </group>
+        );
+    } else {
+        // STANDARD / MAX LAYOUT: Window (Left) + Door (Right)
+        // Let's place them symmetrically
+        const unitWidth = 2.5;
+        const windowCenter = -width / 4;
+        const doorCenter = width / 4;
+
+        // Edges
+        const windowLeft = windowCenter - unitWidth / 2;
+        const windowRight = windowCenter + unitWidth / 2;
+        const doorLeft = doorCenter - unitWidth / 2;
+        const doorRight = doorCenter + unitWidth / 2;
+
+        // Wall 1: Far Left (Post to Window)
+        const w1Width = windowLeft - leftBound;
+        const w1Center = leftBound + w1Width / 2;
+
+        // Wall 2: Center (Window to Door)
+        const w2Width = doorLeft - windowRight;
+        const w2Center = windowRight + w2Width / 2;
+
+        // Wall 3: Far Right (Door to Post)
+        const w3Width = rightBound - doorRight;
+        const w3Center = doorRight + w3Width / 2;
+
+        return (
+            <group>
+                {/* Far Left Wall */}
+                {w1Width > 0 && (
+                     <group position={[w1Center, 0, 0]}>
+                        <CorrugatedPanel width={w1Width} height={wallHeight} depth={0.05} />
+                    </group>
+                )}
+                {/* Window */}
+                <group position={[windowCenter, 0, 0]}>
+                     <WindowFrame width={unitWidth} height={height - 0.4} type="sliding" />
+                </group>
+                {/* Center Wall */}
+                {w2Width > 0 && (
+                     <group position={[w2Center, 0, 0]}>
+                        <CorrugatedPanel width={w2Width} height={wallHeight} depth={0.05} />
+                    </group>
+                )}
+                {/* Door */}
+                <group position={[doorCenter, 0, 0]}>
+                     <WindowFrame width={unitWidth} height={height - 0.4} type="sliding" />
+                </group>
+                {/* Far Right Wall */}
+                {w3Width > 0 && (
+                     <group position={[w3Center, 0, 0]}>
+                        <CorrugatedPanel width={w3Width} height={wallHeight} depth={0.05} />
+                    </group>
+                )}
+            </group>
+        );
+    }
+  };
 
   return (
     <group position={[0, height / 2, 0]}>
@@ -141,7 +315,7 @@ const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex })
         ))}
       </group>
 
-      {/* --- WALLS --- */}
+      {/* --- FLOORS & CEILINGS --- */}
       <mesh position={[0, -height / 2 + 0.2, 0]} receiveShadow>
         <boxGeometry args={[width - 0.4, 0.1, depth - 0.4]} />
         <meshStandardMaterial 
@@ -156,14 +330,9 @@ const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex })
                <boxGeometry args={[width-0.6, depth-0.6, 0.05]} />
                <meshStandardMaterial {...wallMaterialProps} />
           </mesh>
-           {Array.from({ length: 38 }).map((_, i) => (
-               <mesh key={i} position={[-width/2 + 0.5 + i * 0.28, 0.05, 0]} castShadow>
-                   <boxGeometry args={[0.14, 0.05, depth-0.6]} />
-                   <meshStandardMaterial {...wallMaterialProps} />
-               </mesh>
-           ))}
       </group>
 
+      {/* --- REAR & SIDE WALLS --- */}
       <group position={[0, 0, -depth/2 + 0.1]}>
            <CorrugatedPanel width={width - 0.6} height={height - 0.6} depth={0.05} />
       </group>
@@ -176,34 +345,15 @@ const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex })
             <CorrugatedPanel width={depth - 0.6} height={height - 0.6} depth={0.05} />
       </group>
 
-      {/* Front Facade */}
+      {/* --- FRONT FACADE --- */}
       <group position={[0, 0, depth/2 - 0.1]}>
-          {config.windowType === 'standard' ? (
-            <group>
-                <group position={[-4.2, 0, 0]}><CorrugatedPanel width={3.1} height={height-0.6} depth={0.05} /></group>
-                <group position={[0, 0, 0]}><CorrugatedPanel width={2} height={height-0.6} depth={0.05} /></group>
-                <group position={[4.2, 0, 0]}><CorrugatedPanel width={3.1} height={height-0.6} depth={0.05} /></group>
-
-                {[-1.6, 1.6].map((x, i) => (
-                    <group key={i} position={[x, 0, 0]}>
-                        <mesh castShadow receiveShadow><boxGeometry args={[2.1, 2.3, 0.15]} /><meshStandardMaterial color="#333" /></mesh>
-                        <mesh><planeGeometry args={[1.9, 2.1]} /><meshPhysicalMaterial {...glassMaterialProps} /></mesh>
-                        <mesh position={[0, 1.4, 0]}><boxGeometry args={[2.1, 0.5, 0.05]} /><meshStandardMaterial {...wallMaterialProps} /></mesh>
-                        <mesh position={[0, -1.4, 0]}><boxGeometry args={[2.1, 0.5, 0.05]} /><meshStandardMaterial {...wallMaterialProps} /></mesh>
-                    </group>
-                ))}
-            </group>
-          ) : (
-            <group>
-                <mesh position={[0, 0, 0]} castShadow><boxGeometry args={[width - 0.7, height - 0.7, 0.15]} /><meshStandardMaterial color="#111" /></mesh>
-                <mesh position={[0, 0, 0.01]}><planeGeometry args={[width - 1, height - 1]} /><meshPhysicalMaterial {...glassMaterialProps} /></mesh>
-            </group>
-          )}
+         {renderFacade()}
       </group>
 
       {/* --- INTERIOR --- */}
 
       {config.hasKitchen && (
+        // Position relative to left wall
         <group position={[-width / 2 + 1.5, -height / 2 + 0.1, -depth / 2 + 0.6]}>
           {/* Toe Kick */}
           <mesh position={[0, 0.05, -0.05]} castShadow>
@@ -294,7 +444,8 @@ const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex })
       )}
 
       {config.tableType !== 'none' && (
-        <group position={[2, -height / 2 + 0.1, 0]}>
+        // Position on the right side. For Nano, squeeze it closer to center.
+        <group position={[config.capsuleVariant === 'nano' ? 1.5 : 2.5, -height / 2 + 0.1, 0]}>
           {config.tableType === 'small' ? (
              <group>
                 {/* Bistro Table */}
@@ -362,22 +513,21 @@ const CapsuleModel: React.FC<CapsuleModelProps> = ({ config, currentStepIndex })
 
       {/* --- EXTRAS --- */}
       
-      {/* Hide solar panels in Step 1 (Interior) so they don't block the view */}
       {config.solarPanels && currentStepIndex !== 1 && (
         <group position={[0, height / 2 + 0.15, 0]}>
              {/* Racking System */}
              <mesh position={[0, 0.02, 0.5]}>
-                <boxGeometry args={[8, 0.05, 0.1]} />
+                <boxGeometry args={[width - 3, 0.05, 0.1]} />
                 <meshStandardMaterial color="#888" />
              </mesh>
              <mesh position={[0, 0.02, -0.5]}>
-                <boxGeometry args={[8, 0.05, 0.1]} />
+                <boxGeometry args={[width - 3, 0.05, 0.1]} />
                 <meshStandardMaterial color="#888" />
              </mesh>
 
              {/* Panels */}
-             {[-2.5, 0, 2.5].map((x) => (
-                <group key={x} position={[x, 0.1, 0]} rotation={[-0.1, 0, 0]}>
+             {[-width/4, 0, width/4].map((x, i) => (
+                <group key={i} position={[x, 0.1, 0]} rotation={[-0.1, 0, 0]}>
                     <mesh castShadow>
                         <boxGeometry args={[2.2, 0.05, 1.4]} />
                         <meshStandardMaterial color="#ccc" />

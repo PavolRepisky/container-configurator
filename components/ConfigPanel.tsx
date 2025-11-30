@@ -1,39 +1,66 @@
 import React from 'react';
-import { ConfigState, StepName } from '../types';
-import { COLORS } from '../constants';
-import { Check, ChevronRight, ChevronLeft } from 'lucide-react';
+import { CapsuleVariant, STEPS } from '../types';
+import { COLORS, VARIANT_DIMENSIONS } from '../constants';
+import { Check, ChevronRight, ChevronLeft, Ruler } from 'lucide-react';
+import { useConfigStore } from '../store';
+import { TRANSLATIONS } from '../translations';
 
-interface ConfigPanelProps {
-  step: StepName;
-  config: ConfigState;
-  updateConfig: (key: keyof ConfigState, value: any) => void;
-  nextStep: () => void;
-  prevStep: () => void;
-  isFirstStep: boolean;
-  isLastStep: boolean;
-  totalPrice: number;
-  t: any;
-}
-
-const ConfigPanel: React.FC<ConfigPanelProps> = ({
-  step,
-  config,
-  updateConfig,
-  nextStep,
-  prevStep,
-  isFirstStep,
-  isLastStep,
-  totalPrice,
-  t
-}) => {
+const ConfigPanel: React.FC = () => {
+  const config = useConfigStore((state) => state.config);
+  const currentStepIndex = useConfigStore((state) => state.currentStepIndex);
+  const language = useConfigStore((state) => state.language);
+  const updateConfig = useConfigStore((state) => state.updateConfig);
+  const nextStep = useConfigStore((state) => state.nextStep);
+  const prevStep = useConfigStore((state) => state.prevStep);
+  const getTotalPrice = useConfigStore((state) => state.getTotalPrice);
+  const step = STEPS[currentStepIndex].name;
   
+  const isFirstStep = currentStepIndex === 0;
+  const isLastStep = currentStepIndex === STEPS.length - 1;
+  const totalPrice = getTotalPrice();
+  const t = TRANSLATIONS[language];
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
   };
 
   const renderExteriorControls = () => (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-8 animate-fadeIn">
+      
+      {/* Variant Selection */}
       <div>
+         <label className="block text-sm font-medium text-gray-700 mb-3">{t.options.modelVariant}</label>
+         <div className="grid grid-cols-2 gap-3">
+             {(['nano', 'standard', 'max', 'loft'] as CapsuleVariant[]).map((variant) => {
+                 const dims = VARIANT_DIMENSIONS[variant];
+                 return (
+                    <button
+                        key={variant}
+                        onClick={() => updateConfig('capsuleVariant', variant)}
+                        className={`relative p-3 rounded-xl border-2 text-left transition-all ${
+                            config.capsuleVariant === variant
+                            ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600'
+                            : 'border-gray-200 hover:border-blue-300 bg-white'
+                        }`}
+                    >
+                        <div className="flex justify-between items-start mb-1">
+                             <span className={`text-sm font-bold ${config.capsuleVariant === variant ? 'text-blue-900' : 'text-gray-900'}`}>
+                                 {t.options[variant]}
+                             </span>
+                             {config.capsuleVariant === variant && <Check size={16} className="text-blue-600" />}
+                        </div>
+                        <div className="text-xs text-gray-500 mb-2">{t.options[`${variant}Desc`]}</div>
+                        <div className="flex items-center gap-1 text-xs text-gray-400 font-mono">
+                            <Ruler size={12} />
+                            {dims.width}m x {dims.height}m
+                        </div>
+                    </button>
+                 );
+             })}
+         </div>
+      </div>
+
+      <div className="border-t border-gray-100 pt-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">{t.options.wallColor}</label>
         <div className="grid grid-cols-3 gap-3">
           {COLORS.map((c) => (
@@ -63,7 +90,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 : 'border-gray-200 text-gray-600 hover:border-gray-300'
             }`}
           >
-            {t.options.standard}
+            {t.options.standardWindow}
           </button>
           <button
             onClick={() => updateConfig('windowType', 'panoramic')}
@@ -87,7 +114,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({
          <select 
             value={config.floorMaterial}
             onChange={(e) => updateConfig('floorMaterial', e.target.value)}
-            className="w-full p-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full p-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-gray-900"
          >
             <option value="concrete">{t.options.concrete} ({t.options.included})</option>
             <option value="wood">{t.options.wood} (+$1,200)</option>

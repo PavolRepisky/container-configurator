@@ -1,6 +1,7 @@
 import { ConfigState, PricingRule } from './types';
 
 export const INITIAL_CONFIG: ConfigState = {
+  capsuleVariant: 'standard',
   wallColor: '#374151', // Dark Gray
   windowType: 'standard',
   hasKitchen: true,
@@ -10,9 +11,22 @@ export const INITIAL_CONFIG: ConfigState = {
   acUnit: false,
 };
 
+export const VARIANT_DIMENSIONS = {
+  nano: { width: 6.0, height: 3.3 },
+  standard: { width: 11.5, height: 3.3 },
+  max: { width: 14.5, height: 3.3 },
+  loft: { width: 11.5, height: 4.1 }, // Taller
+};
+
 export const PRICING: PricingRule = {
-  basePrice: 25000,
+  basePrice: 0, // Calculated via variant
   options: {
+    capsuleVariant: {
+      nano: 15000,
+      standard: 25000,
+      max: 32000,
+      loft: 35000,
+    },
     wallColor: {
       '#374151': 0,
       '#9CA3AF': 500, // Silver
